@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>数字收据打印机</title>
+<style>
+  :root {
+    --bg: #000;
+    --ink: #1a1a1a;
+    --ink-soft: #6b6b6b;
+    --green: #22a45d;
+    --amber: #f5a623;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+
+  body {
+    background: radial-gradient(120% 90% at 50% 0%, #16161a 0%, #000 55%);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    overflow-x: hidden;
+  }
+
+  .stage {
+    width: 100%;
+    max-width: 480px;
+    padding: 44px 22px 90px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 1;
+    position: relative;
+  }
+
+  /* ============ 支付卡片 ============ */
+  .pay-card {
+    width: 100%;
+    background: #141416;
+    border: 1px solid #26262a;
+    border-radius: 24px;
+    padding: 30px 26px;
+    color: #eee;
+    transition: opacity .45s ease, transform .45s ease;
+  }
+  .pay-card.hidden {
+    opacity: 0;
+    transform: translateY(-24px) scale(.97);
+    pointer-events: none;
+    position: absolute;
+  }
+  .pay-card h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+  .pay-card .sub { color: #888; font-size: 13px; margin-bottom: 24px; }
+  .pay-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 13px 0; border-bottom: 1px solid #222;
+    font-size: 15px;
+  }
+  .pay-row .amount { font-weight: 700; font-size: 22px; }
+
+  .style-label { margin: 20px 0 10px; font-size: 13px; color: #888; }
+  .style-pills { display: flex; gap: 8px; flex-wrap: wrap; }
+  .style-pill {
+    flex: 1;
+    min-width: 72px;
+    padding: 10px 0;
+    border-radius: 12px;
+    border: 1px solid #333;
+    background: #1c1c1f;
+    color: #ccc;
+    font-size: 13px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    transition: border-color .2s, background .2s, color .2s;
+  }
+  .style-pill .dot { width: 10px; height: 10px; border-radius: 3px; }
+  .style-pill.active {
+    border-color: #fff;
+    background: #fff;
+    color: #000;
+    font-weight: 600;
+  }
+
+  .pay-btn {
+    margin-top: 24px;
+    width: 100%;
+    padding: 16px;
+    font-size: 16px;
+    font-weight: 600;
+    color: #000;
+    background: #fff;
+    border: none;
+    border-radius: 14px;
+    cursor: pointer;
+    transition: transform .15s ease, opacity .2s;
+  }
+  .pay-btn:active { transform: scale(.97); }
+  .pay-btn:disabled { opacity: .6; cursor: default; }
+
+  .spinner {
+    display: inline-block;
+    width: 16px; height: 16px;
+    border: 2px solid rgba(0,0,0,.25);
+    border-top-color: #000;
+    border-radius: 50%;
+    vertical-align: -3px;
+    margin-right: 8px;
+    animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ============ 打印机 ============ */
+  .printer-scene {
+    width: 100%;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  .printer-scene.show {
+    display: flex;
+    animation: sceneIn .6s cubic-bezier(.22,1,.36,1) forwards;
+  }
+  @keyframes sceneIn { to { opacity: 1; transform: translateY(0); } }
+
+  .printer {
+    width: 100%;
+    position: relative;
+    z-index: 3;
+    border-radius: 26px;
+    background: linear-gradient(180deg, #f0f0f2 0%, #dcdcdf 45%, #c5c5ca 88%, #ababb1 100%);
+    box-shadow:
+      0 0 70px rgba(255,255,255,.13),
+      0 24px 50px rgba(0,0,0,.6),
+      0 2px 6px rgba(0,0,0,.4),
+      inset 0 1.5px 0 rgba(255,255,255,.85),
+      inset 0 -3px 8px rgba(0,0,0,.18);
+    padding: 16px 16px 0;
+  }
+  /* 顶部弧形上盖（纸卷仓的暗示） */
+  .printer::before {
+    content: "";
+    position: absolute;
+    left: 10px; right: 10px; top: 6px;
+    height: 12px;
+    border-radius: 999px;
+    background: linear-gradient(180deg, rgba(255,255,255,.9), rgba(255,255,255,0));
+    pointer-events: none;
+  }
+  .printer.humming { animation: hum .09s linear infinite; }
+  @keyframes hum {
+    0%,100% { transform: translateY(0); }
+    50% { transform: translateY(.35px); }
+  }
+
+  .p-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 8px 14px;
+  }
+  .brand-logo { width: 32px; height: 32px; filter: drop-shadow(0 1px 0 rgba(255,255,255,.8)); }
+
+  .vents {
+    flex: 1;
+    height: 14px;
+    margin: 0 20px;
+    background: repeating-linear-gradient(
+      90deg,
+      rgba(0,0,0,.14) 0 3px,
+      transparent 3px 9px
+    );
+    border-radius: 3px;
+    mask-image: linear-gradient(90deg, transparent, #000 15%, #000 85%, transparent);
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 15%, #000 85%, transparent);
+  }
+
+  .home-btn {
+    display: flex; align-items: center; gap: 7px;
+    background: linear-gradient(180deg, #fdfdfd, #ececee);
+    border: 1px solid #c4c4c9;
+    border-radius: 999px;
+    padding: 9px 17px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #222;
+    cursor: pointer;
+    box-shadow: 0 1px 2px rgba(0,0,0,.15), inset 0 1px 0 #fff;
+  }
+  .home-btn:active { transform: scale(.96); }
+
+  /* LCD 屏 */
+  .p-screen {
+    background:
+      linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,0) 40%),
+      #0d120e;
+    border-radius: 14px;
+    border: 1px solid rgba(0,0,0,.55);
+    padding: 16px 18px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow:
+      inset 0 2px 8px rgba(0,0,0,.8),
+      0 1px 0 rgba(255,255,255,.5);
+  }
+  .screen-text {
+    font-family: "Courier New", Consolas, monospace;
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: #5fe392;
+    text-shadow: 0 0 8px rgba(95,227,146,.55);
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .screen-text .cursor { animation: blinkCursor 1s steps(1) infinite; }
+  @keyframes blinkCursor { 50% { opacity: 0; } }
+  .screen-pct {
+    font-family: "Courier New", Consolas, monospace;
+    font-size: 13px;
+    color: #3f9a63;
+    letter-spacing: 1px;
+  }
+
+  /* 屏幕下方：LED + FEED */
+  .p-mid {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 13px 10px;
+  }
+  .led-group { display: flex; align-items: center; gap: 8px; }
+  .led {
+    width: 9px; height: 9px;
+    border-radius: 50%;
+    background: #9a9aa0;
+    box-shadow: inset 0 1px 1px rgba(0,0,0,.4);
+    transition: background .3s;
+  }
+  .led.on-green { background: #2ecc71; box-shadow: 0 0 8px 2px rgba(46,204,113,.55); }
+  .led.on-amber { background: var(--amber); box-shadow: 0 0 8px 2px rgba(245,166,35,.55); animation: ledBlink .5s steps(1) infinite; }
+  @keyframes ledBlink { 50% { opacity: .25; } }
+  .led-label {
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: #77777d;
+    font-weight: 700;
+  }
+  .feed-btn {
+    font-size: 10px;
+    letter-spacing: 2px;
+    font-weight: 700;
+    color: #55555b;
+    background: linear-gradient(180deg, #fbfbfc, #e2e2e6);
+    border: 1px solid #bcbcc2;
+    border-radius: 8px;
+    padding: 7px 16px;
+    cursor: pointer;
+    box-shadow: 0 2px 0 #b0b0b6, inset 0 1px 0 #fff;
+  }
+  .feed-btn:active { transform: translateY(1.5px); box-shadow: 0 .5px 0 #b0b0b6; }
+
+  /* 切纸口 */
+  .cutter {
+    height: 5px;
+    margin: 0 22px;
+    border-radius: 3px;
+    background: linear-gradient(180deg, #f8f8fa, #b9b9bf 55%, #8e8e95);
+    box-shadow: 0 1px 1px rgba(0,0,0,.3);
+  }
+  .slot {
+    height: 15px;
+    margin: 5px 30px 0;
+    border-radius: 8px 8px 0 0;
+    background: linear-gradient(180deg, #131316, #2e2e33);
+    box-shadow:
+      inset 0 4px 7px rgba(0,0,0,.9),
+      inset 0 -1px 0 rgba(255,255,255,.09);
+  }
+  /* 底沿 */
+  .p-chin {
+    height: 13px;
+    margin: 0 -16px;
+    border-radius: 0 0 26px 26px;
+    background: linear-gradient(180deg, #a2a2a8, #808088);
+    box-shadow: inset 0 2px 3px rgba(255,255,255,.25), inset 0 -2px 4px rgba(0,0,0,.35);
+  }
+
+  /* ============ 纸张 ============ */
+  .paper-track {
+    width: calc(100% - 92px);
+    position: relative;
+    z-index: 2;
+    margin-top: -10px;
+    overflow: hidden;
+    height: 0;               /* JS 打印时设置 */
+    pointer-events: none;
+  }
+  .paper-move {
+    will-change: transform;
+    transform: translateY(-101%);
+    pointer-events: auto;
+  }
+  .paper-move.feeding {
+    transition: transform var(--feed-dur, 3.8s) linear;
+    transform: translateY(var(--feed-extra, 0px));
+  }
+  .paper-move.retracting {
+    transition: transform .55s cubic-bezier(.5,0,.8,.4);
+    transform: translateY(-101%);
+  }
+
+  .receipt {
+    width: 100%;
+    color: var(--ink);
+    padding: 32px 26px 46px;
+    box-shadow: 0 26px 50px rgba(0,0,0,.55), 0 0 40px rgba(255,255,255,.05);
+    position: relative;
+    --zz: 11px;
+    clip-path: polygon(
+      0 0, 100% 0,
+      100% calc(100% - var(--zz)),
+      97.5% 100%, 95% calc(100% - var(--zz)), 92.5% 100%, 90% calc(100% - var(--zz)),
+      87.5% 100%, 85% calc(100% - var(--zz)), 82.5% 100%, 80% calc(100% - var(--zz)),
+      77.5% 100%, 75% calc(100% - var(--zz)), 72.5% 100%, 70% calc(100% - var(--zz)),
+      67.5% 100%, 65% calc(100% - var(--zz)), 62.5% 100%, 60% calc(100% - var(--zz)),
+      57.5% 100%, 55% calc(100% - var(--zz)), 52.5% 100%, 50% calc(100% - var(--zz)),
+      47.5% 100%, 45% calc(100% - var(--zz)), 42.5% 100%, 40% calc(100% - var(--zz)),
+      37.5% 100%, 35% calc(100% - var(--zz)), 32.5% 100%, 30% calc(100% - var(--zz)),
+      27.5% 100%, 25% calc(100% - var(--zz)), 22.5% 100%, 20% calc(100% - var(--zz)),
+      17.5% 100%, 15% calc(100% - var(--zz)), 12.5% 100%, 10% calc(100% - var(--zz)),
+      7.5% 100%, 5% calc(100% - var(--zz)), 2.5% 100%, 0 calc(100% - var(--zz))
+    );
+  }
+  /* 热敏纸微弱横纹 */
+  .receipt::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      180deg,
+      rgba(0,0,0,.012) 0 2px,
+      transparent 2px 4px
+    );
+  }
+
+  /* ---- 主题：经典 ---- */
+  .receipt.theme-classic { background: #fdfdfc; font-family: "Courier New", Consolas, monospace; }
+
+  /* ---- 主题：小票 ---- */
+  .receipt.theme-retail { background: #fff; font-family: "Courier New", Consolas, monospace; font-size: 14px; }
+
+  /* ---- 主题：复古 ---- */
+  .receipt.theme-vintage {
+    background: linear-gradient(180deg, #f8f2e0, #f3ebd4);
+    font-family: Georgia, "Times New Roman", "Songti SC", "SimSun", serif;
+    color: #43331f;
+  }
+
+  /* ---- 主题：极简 ---- */
+  .receipt.theme-minimal { background: #fff; font-family: -apple-system, "Segoe UI", "PingFang SC", sans-serif; }
+
+  /* 收据通用元素 */
+  .r-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .r-head svg { width: 28px; height: 28px; }
+  .r-brand { font-family: -apple-system, "Segoe UI", sans-serif; font-size: 22px; font-weight: 700; letter-spacing: -.5px; }
+  .r-meta { color: var(--ink-soft); font-size: 13px; margin-bottom: 22px; }
+  .r-line { display: flex; justify-content: space-between; padding: 5px 0; font-size: 15px; }
+  .r-line.small { font-size: 12.5px; color: var(--ink-soft); }
+  .r-divider { border: none; border-top: 2px dashed #c9c9c4; margin: 12px 0; }
+  .r-total { font-weight: 700; font-size: 17px; }
+  .r-center { text-align: center; }
+  .r-thanks { text-align: center; margin-top: 28px; font-size: 14px; }
+  .r-barcode {
+    margin: 26px auto 0;
+    height: 42px;
+    width: 80%;
+    background: repeating-linear-gradient(
+      90deg,
+      currentColor 0 2px, transparent 2px 5px,
+      currentColor 5px 6px, transparent 6px 10px,
+      currentColor 10px 13px, transparent 13px 15px,
+      currentColor 15px 16px, transparent 16px 21px
+    );
+    opacity: .85;
+  }
+  .r-barcode-num { text-align: center; font-size: 11px; letter-spacing: 4px; color: var(--ink-soft); margin-top: 6px; }
+
+  /* 复古元素 */
+  .v-title { text-align: center; font-size: 22px; font-weight: 700; letter-spacing: 3px; }
+  .v-orn { text-align: center; letter-spacing: 6px; color: #a08a63; margin: 8px 0 16px; font-size: 13px; }
+  .v-frame { border-top: 3px double #43331f; border-bottom: 3px double #43331f; padding: 10px 0; margin: 12px 0; }
+  .stamp {
+    position: absolute;
+    right: 22px; bottom: 88px;
+    width: 84px; height: 84px;
+    border: 3px solid rgba(196,52,45,.75);
+    border-radius: 50%;
+    color: rgba(196,52,45,.8);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    font-size: 15px; font-weight: 700; letter-spacing: 2px;
+    transform: rotate(-14deg);
+    font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+    pointer-events: none;
+  }
+  .stamp small { font-size: 9px; letter-spacing: 3px; margin-top: 2px; }
+
+  /* 极简元素 */
+  .m-label { font-size: 12px; letter-spacing: 3px; color: #999; text-transform: uppercase; }
+  .m-amount { font-size: 46px; font-weight: 800; letter-spacing: -1.5px; margin: 6px 0 26px; }
+  .m-rule { border: none; border-top: 1px solid #eee; margin: 14px 0; }
+  .m-qr { display: block; margin: 26px auto 0; }
+
+  /* ============ 底部操作区 ============ */
+  .actions {
+    margin-top: 34px;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    opacity: 0;
+    transform: translateY(12px);
+    pointer-events: none;
+    transition: opacity .5s ease, transform .5s ease;
+  }
+  .actions.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
+  .actions .style-pills { width: 100%; }
+  .actions .style-pill { background: #17171a; border-color: #303034; }
+  .actions .style-pill.active { background: #fff; border-color: #fff; color: #000; }
+  .action-row { display: flex; gap: 12px; }
+  .action-row button {
+    padding: 12px 22px;
+    border-radius: 999px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid #3a3a3e;
+    background: #1b1b1e;
+    color: #eee;
+    transition: background .2s;
+  }
+  .action-row button:hover { background: #2a2a2e; }
+
+  @media (max-width: 400px) {
+    .receipt { padding: 26px 18px 40px; }
+    .m-amount { font-size: 38px; }
+  }
+
+  @media print {
+    body * { visibility: hidden; }
+    .receipt, .receipt * { visibility: visible; }
+    .receipt {
+      position: absolute; left: 0; top: 0; width: 100%;
+      box-shadow: none; clip-path: none;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="stage">
+
+  <!-- 支付卡片 -->
+  <div class="pay-card" id="payCard">
+    <h1>确认订单</h1>
+    <div class="sub" id="paySub">chatgpt.com</div>
+    <div class="pay-row"><span id="payItem">ChatGPT Pro（月度订阅）</span><span id="payPrice">$200.00</span></div>
+    <div class="pay-row"><span>合计</span><span class="amount" id="payTotal">$200.00</span></div>
+
+    <div class="style-label">收据样式</div>
+    <div class="style-pills" id="pillsTop"></div>
+
+    <button class="pay-btn" id="payBtn">立即支付</button>
+  </div>
+
+  <!-- 打印机 -->
+  <div class="printer-scene" id="scene">
+    <div class="printer" id="printer">
+      <div class="p-top">
+        <svg class="brand-logo" viewBox="0 0 24 24" fill="none">
+          <path d="M12 2.5c1.9 0 3.6 1 4.5 2.6a5.2 5.2 0 0 1 4.9 7.2 5.2 5.2 0 0 1-4.4 7.8A5.2 5.2 0 0 1 12 21.5a5.2 5.2 0 0 1-4.9-1.4 5.2 5.2 0 0 1-4.5-7.8 5.2 5.2 0 0 1 4.9-7.2A5.2 5.2 0 0 1 12 2.5Z" stroke="#111" stroke-width="1.6"/>
+          <path d="M9.2 9.4 12 7.8l2.8 1.6v3.2L12 14.2l-2.8-1.6V9.4Z" stroke="#111" stroke-width="1.4"/>
+        </svg>
+        <div class="vents"></div>
+        <button class="home-btn" id="homeBtn">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+            <path d="M3 10.5 12 3l9 7.5V21h-6v-6h-6v6H3V10.5Z" fill="#222"/>
+          </svg>
+          主页
+        </button>
+      </div>
+
+      <div class="p-screen">
+        <span class="screen-text" id="screenText">READY<span class="cursor">▌</span></span>
+        <span class="screen-pct" id="screenPct"></span>
+      </div>
+
+      <div class="p-mid">
+        <div class="led-group">
+          <span class="led" id="led"></span>
+          <span class="led-label">STATUS</span>
+        </div>
+        <button class="feed-btn" id="feedBtn">FEED</button>
+      </div>
+
+      <div class="cutter"></div>
+      <div class="slot"></div>
+      <div class="p-chin"></div>
+    </div>
+
+    <div class="paper-track" id="track">
+      <div class="paper-move" id="paperMove">
+        <div class="receipt theme-classic" id="receipt"></div>
+      </div>
+    </div>
+
+    <div class="actions" id="actions">
+      <div class="style-pills" id="pillsBottom"></div>
+      <div class="action-row">
+        <button id="printBtn">🖨 打印收据</button>
+        <button id="againBtn">↻ 再来一次</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const payCard = $('payCard'), payBtn = $('payBtn'), scene = $('scene');
+  const printer = $('printer'), track = $('track'), paperMove = $('paperMove');
+  const receipt = $('receipt'), actions = $('actions');
+  const screenText = $('screenText'), screenPct = $('screenPct'), led = $('led');
+
+  const logoSVG = `<svg viewBox="0 0 24 24" fill="none">
+    <path d="M12 2.5c1.9 0 3.6 1 4.5 2.6a5.2 5.2 0 0 1 4.9 7.2 5.2 5.2 0 0 1-4.4 7.8A5.2 5.2 0 0 1 12 21.5a5.2 5.2 0 0 1-4.9-1.4 5.2 5.2 0 0 1-4.5-7.8 5.2 5.2 0 0 1 4.9-7.2A5.2 5.2 0 0 1 12 2.5Z" stroke="currentColor" stroke-width="1.6"/>
+    <path d="M9.2 9.4 12 7.8l2.8 1.6v3.2L12 14.2l-2.8-1.6V9.4Z" stroke="currentColor" stroke-width="1.4"/></svg>`;
+
+  function nowStr() {
+    const d = new Date(), p = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+  function orderNo() { return Math.floor(1000 + Math.random() * 9000); }
+
+  /* 伪二维码（由订单号播种，纯装饰） */
+  function qrSVG(seed, size) {
+    const n = 21, cell = size / n;
+    let s = seed * 2654435761 % 4294967296;
+    const rnd = () => { s = (s * 1103515245 + 12345) % 2147483648; return s / 2147483648; };
+    let rects = '';
+    const finder = (x, y) => {
+      rects += `<rect x="${x*cell}" y="${y*cell}" width="${7*cell}" height="${7*cell}" fill="none" stroke="currentColor" stroke-width="${cell}"/>`;
+      rects += `<rect x="${(x+2)*cell}" y="${(y+2)*cell}" width="${3*cell}" height="${3*cell}"/>`;
+    };
+    finder(0, 0); finder(14, 0); finder(0, 14);
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      const inF = (x < 8 && y < 8) || (x > 12 && y < 8) || (x < 8 && y > 12);
+      if (!inF && rnd() > .52) rects += `<rect x="${x*cell}" y="${y*cell}" width="${cell}" height="${cell}"/>`;
+    }
+    return `<svg class="m-qr" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" fill="currentColor">${rects}</svg>`;
+  }
+
+  /* ============ 收据模板 ============ */
+  const TEMPLATES = {
+    classic: {
+      name: '经典', dot: '#fdfdfc',
+      pay: { sub: 'chatgpt.com', item: 'ChatGPT Pro（月度订阅）', price: '$200.00', total: '$200.00' },
+      render(no) {
+        return `
+          <div class="r-head">${logoSVG}<span class="r-brand">OpenAI</span></div>
+          <div class="r-meta">chatgpt.com · 订单 #${no}</div>
+          <div class="r-line"><span>ChatGPT Pro</span><span>$200.00</span></div>
+          <hr class="r-divider">
+          <div class="r-line r-total"><span>合计</span><span>$200.00</span></div>
+          <div class="r-line small" style="margin-top:16px"><span>日期</span><span>${nowStr()}</span></div>
+          <div class="r-line small"><span>支付方式</span><span>Visa ····6411</span></div>
+          <div class="r-thanks">感谢您的购买！</div>
+          <div class="r-barcode"></div>
+          <div class="r-barcode-num">${no} 0020 0086 ${new Date().getFullYear()}</div>`;
+      }
+    },
+    retail: {
+      name: '小票', dot: '#9ad1ff',
+      pay: { sub: 'CLAUDE 便利店 · 门店 No.297', item: '商品 3 件', price: '¥39.50', total: '¥39.50' },
+      render(no) {
+        return `
+          <div class="r-center" style="font-size:19px;font-weight:700;letter-spacing:2px">★ CLAUDE 便利店 ★</div>
+          <div class="r-center r-meta" style="margin-top:6px">门店 No.297 · 收银 02<br>${nowStr()} · 单号 #${no}</div>
+          <hr class="r-divider">
+          <div class="r-line"><span>拿铁咖啡（大）</span><span>¥18.00</span></div>
+          <div class="r-line small"><span>&nbsp;&nbsp;1 × ¥18.00</span><span></span></div>
+          <div class="r-line"><span>火腿三明治</span><span>¥15.50</span></div>
+          <div class="r-line small"><span>&nbsp;&nbsp;1 × ¥15.50</span><span></span></div>
+          <div class="r-line"><span>气泡水 500ml</span><span>¥6.00</span></div>
+          <div class="r-line small"><span>&nbsp;&nbsp;1 × ¥6.00</span><span></span></div>
+          <hr class="r-divider">
+          <div class="r-line small"><span>小计</span><span>¥39.50</span></div>
+          <div class="r-line small"><span>优惠</span><span>-¥0.00</span></div>
+          <div class="r-line r-total"><span>合计</span><span>¥39.50</span></div>
+          <div class="r-line small"><span>微信支付</span><span>¥39.50</span></div>
+          <hr class="r-divider">
+          <div class="r-center" style="font-size:13px">已收 3 件商品 · 欢迎下次光临</div>
+          <div class="r-barcode"></div>
+          <div class="r-barcode-num">2970 ${no} 0039 50</div>`;
+      }
+    },
+    vintage: {
+      name: '复古', dot: '#e8d9b0',
+      pay: { sub: 'COFFEE & CO. EST.1932', item: '手冲耶加雪菲 × 2', price: '¥68.00', total: '¥68.00' },
+      render(no) {
+        return `
+          <div class="v-orn">❦ ❦ ❦</div>
+          <div class="v-title">COFFEE &amp; CO.</div>
+          <div class="r-center r-meta" style="color:#7d6a4d;margin-top:4px">EST. 1932 · 上海市武康路 297 号</div>
+          <div class="v-frame">
+            <div class="r-line"><span>手冲耶加雪菲</span><span>¥34.00</span></div>
+            <div class="r-line small" style="color:#8b795c"><span>&nbsp;&nbsp;2 杯</span><span></span></div>
+            <div class="r-line r-total" style="margin-top:6px"><span>合计</span><span>¥68.00</span></div>
+          </div>
+          <div class="r-line small" style="color:#8b795c"><span>单号</span><span>No.${no}</span></div>
+          <div class="r-line small" style="color:#8b795c"><span>时间</span><span>${nowStr()}</span></div>
+          <div class="r-line small" style="color:#8b795c"><span>现金</span><span>¥68.00</span></div>
+          <div class="v-orn" style="margin-top:20px">— 手作良品 · 静候再会 —</div>
+          <div class="stamp">已支付<small>PAID · ${new Date().getFullYear()}</small></div>`;
+      }
+    },
+    minimal: {
+      name: '极简', dot: '#333',
+      pay: { sub: 'studio·297', item: '年度会员', price: '¥1,280.00', total: '¥1,280.00' },
+      render(no) {
+        return `
+          <div class="m-label">receipt / ${no}</div>
+          <div class="m-amount">¥1,280<span style="font-size:22px;font-weight:600">.00</span></div>
+          <hr class="m-rule">
+          <div class="r-line"><span style="color:#999">项目</span><span>studio·297 年度会员</span></div>
+          <div class="r-line"><span style="color:#999">日期</span><span>${nowStr()}</span></div>
+          <div class="r-line"><span style="color:#999">支付</span><span>Apple Pay</span></div>
+          <hr class="m-rule">
+          <div class="r-line small"><span>本收据由系统自动生成</span><span>№ ${no}</span></div>
+          ${qrSVG(no, 96)}`;
+      }
+    }
+  };
+
+  /* ============ 样式切换 pills ============ */
+  let currentStyle = 'classic';
+  function buildPills(container, onPick) {
+    container.innerHTML = '';
+    for (const key of Object.keys(TEMPLATES)) {
+      const t = TEMPLATES[key];
+      const b = document.createElement('button');
+      b.className = 'style-pill' + (key === currentStyle ? ' active' : '');
+      b.dataset.style = key;
+      b.innerHTML = `<span class="dot" style="background:${t.dot}"></span>${t.name}`;
+      b.addEventListener('click', () => onPick(key));
+      container.appendChild(b);
+    }
+  }
+  function refreshPills() {
+    document.querySelectorAll('.style-pill').forEach(b =>
+      b.classList.toggle('active', b.dataset.style === currentStyle));
+  }
+  function updatePayCard() {
+    const p = TEMPLATES[currentStyle].pay;
+    $('paySub').textContent = p.sub;
+    $('payItem').textContent = p.item;
+    $('payPrice').textContent = p.price;
+    $('payTotal').textContent = p.total;
+  }
+
+  buildPills($('pillsTop'), key => { currentStyle = key; refreshPills(); updatePayCard(); });
+  buildPills($('pillsBottom'), key => {
+    if (key === currentStyle || busy) return;
+    currentStyle = key; refreshPills();
+    reprint();
+  });
+
+  /* ============ 屏幕 & LED ============ */
+  let dotsTimer = null, pctTimer = null;
+  function setScreen(text, withCursor) {
+    screenText.innerHTML = text + (withCursor ? '<span class="cursor">▌</span>' : '');
+  }
+  function stopTimers() {
+    clearInterval(dotsTimer); clearInterval(pctTimer);
+    dotsTimer = pctTimer = null;
+    screenPct.textContent = '';
+  }
+  function screenPrinting(durMs) {
+    let d = 0;
+    setScreen('打印中');
+    dotsTimer = setInterval(() => {
+      d = (d + 1) % 4;
+      setScreen('打印中' + '·'.repeat(d));
+    }, 320);
+    const t0 = performance.now();
+    pctTimer = setInterval(() => {
+      const pct = Math.min(99, Math.round((performance.now() - t0) / durMs * 100));
+      screenPct.textContent = pct + '%';
+    }, 90);
+  }
+  function screenDone() {
+    stopTimers();
+    setScreen('订单完成 ✓');
+    screenPct.textContent = '100%';
+  }
+  function screenReady() {
+    stopTimers();
+    setScreen('READY', true);
+  }
+
+  /* ============ 打印流程 ============ */
+  let busy = false, extraFeed = 0;
+
+  function feedPaper(onDone) {
+    const tpl = TEMPLATES[currentStyle];
+    receipt.className = 'receipt theme-' + currentStyle;
+    receipt.innerHTML = tpl.render(orderNo());
+
+    extraFeed = 0;
+    paperMove.style.setProperty('--feed-extra', '0px');
+    paperMove.classList.remove('feeding', 'retracting');
+    paperMove.style.transition = '';
+    paperMove.style.transform = '';                 /* 回到 CSS 默认 -101% */
+
+    /* 量高，留 FEED 余量 */
+    const h = receipt.offsetHeight;
+    track.style.height = (h + 60) + 'px';
+
+    const dur = Math.min(4600, Math.max(2600, h * 6.5));  /* 高度自适应时长 */
+    paperMove.style.setProperty('--feed-dur', dur + 'ms');
+
+    led.className = 'led on-amber';
+    printer.classList.add('humming');
+    screenPrinting(dur);
+
+    /* 强制 reflow 提交初始 transform，确保过渡从头平滑播放 */
+    void paperMove.offsetHeight;
+    paperMove.classList.add('feeding');
+
+    let finished = false;
+    const done = () => {
+      if (finished) return;
+      finished = true;
+      paperMove.removeEventListener('transitionend', handler);
+      printer.classList.remove('humming');
+      led.className = 'led on-green';
+      screenDone();
+      onDone && onDone();
+    };
+    const handler = e => { if (e.propertyName === 'transform') done(); };
+    paperMove.addEventListener('transitionend', handler);
+    setTimeout(done, dur + 250);   /* 兜底：事件丢失也能完成 */
+  }
+
+  function startPrint() {
+    busy = true;
+    scene.classList.add('show');
+    setScreen('接收订单…');
+    led.className = 'led on-amber';
+    setTimeout(() => feedPaper(() => {
+      busy = false;
+      actions.classList.add('show');
+    }), 600);
+  }
+
+  function reprint() {
+    busy = true;
+    setScreen('更换纸样…');
+    led.className = 'led on-amber';
+    paperMove.style.transition = '';
+    paperMove.classList.remove('feeding');
+    paperMove.classList.add('retracting');
+    let finished = false;
+    const done = () => {
+      if (finished) return;
+      finished = true;
+      paperMove.removeEventListener('transitionend', handler);
+      setTimeout(() => feedPaper(() => { busy = false; }), 250);
+    };
+    const handler = e => { if (e.propertyName === 'transform') done(); };
+    paperMove.addEventListener('transitionend', handler);
+    setTimeout(done, 800);   /* 兜底 */
+  }
+
+  /* FEED 键：多走一点纸 */
+  $('feedBtn').addEventListener('click', () => {
+    if (busy || !paperMove.classList.contains('feeding')) return;
+    extraFeed = Math.min(48, extraFeed + 16);
+    paperMove.style.transition = 'transform .25s ease-out';
+    paperMove.style.setProperty('--feed-extra', extraFeed + 'px');
+  });
+
+  /* ============ 事件 ============ */
+  payBtn.addEventListener('click', () => {
+    payBtn.disabled = true;
+    payBtn.innerHTML = '<span class="spinner"></span>正在支付…';
+    setTimeout(() => {
+      payCard.classList.add('hidden');
+      startPrint();
+    }, 1200);
+  });
+
+  function reset() {
+    busy = false;
+    stopTimers();
+    scene.classList.remove('show');
+    actions.classList.remove('show');
+    printer.classList.remove('humming');
+    paperMove.classList.remove('feeding', 'retracting');
+    paperMove.style.transition = '';
+    paperMove.style.setProperty('--feed-extra', '0px');
+    track.style.height = '0px';
+    led.className = 'led';
+    screenReady();
+    payCard.classList.remove('hidden');
+    payBtn.disabled = false;
+    payBtn.textContent = '立即支付';
+  }
+
+  $('homeBtn').addEventListener('click', reset);
+  $('againBtn').addEventListener('click', reset);
+  $('printBtn').addEventListener('click', () => window.print());
+})();
+</script>
+</body>
+</html>
