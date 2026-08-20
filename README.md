@@ -2,6 +2,8 @@
 
 一个纯前端的网页小玩具：模拟"支付完成后，热敏打印机吐出电子收据"的动画效果。
 
+**🔗 在线演示：<https://liyucheng1997.github.io/digital-receipt-printer/>**
+
 单文件、零依赖，双击 `index.html` 即可运行。
 
 ## 功能
